@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
 # CLIENTES GCP
 # =====================
 def get_clients():
-    # Escopos necessários para ler o BQ e escrever no Drive
+    # Escopos necessários para ler o BQ e escrever no Google Drive
     SCOPES = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"]
     
     creds, project = default(scopes=SCOPES)
