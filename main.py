@@ -3,18 +3,16 @@ import io
 import pandas as pd
 import logging
 from flask import Flask, jsonify
-from google.cloud import bigquery
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from google.cloud import bigquery, storage
 from google.auth import default
 
 # =====================
 # CONFIGURAÇÕES
 # =====================
-# ID da pasta onde o relatório será salvo
-FOLDER_DESTINO_ID = "1qaT6UKBdjH2V-iCF1D65mehG8C7Kdldj"
-DATASET_ID = "GOLD"
-TABLE_ID = "vendas"
+BUCKET_NAME = "sample-track-files"
+PASTA_DESTINO = "import/" # Pasta dentro do bucket
+DATASET_ID = "SILVER"
+TABLE_ID = "vendas_diarias"
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -23,21 +21,17 @@ logging.basicConfig(level=logging.INFO)
 # CLIENTES GCP
 # =====================
 def get_clients():
-    # Escopos necessários para ler o BQ e escrever no Google Drive
-    SCOPES = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"]
-    
-    creds, project = default(scopes=SCOPES)
-    drive_service = build("drive", "v3", credentials=creds)
+    creds, project = default()
     bq_client = bigquery.Client(credentials=creds, project=project)
-    
-    return drive_service, bq_client
+    storage_client = storage.Client(credentials=creds, project=project)
+    return bq_client, storage_client
 
 # =====================
 # LÓGICA DE EXPORTAÇÃO
 # =====================
-def exportar_gold_para_drive():
+def exportar_silver_para_bucket():
     try:
-        drive_service, bq_client = get_clients()
+        bq_client, storage_client = get_clients()
         
         # 1️⃣ Query no BigQuery (Captura a última carga)
         query = f"""
@@ -54,42 +48,41 @@ def exportar_gold_para_drive():
         # 2️⃣ Montar arquivo Excel em memória
         output = io.BytesIO()
         file_name = f"relatorio_vendas_ultima_carga.xlsx"
+        # O caminho final dentro do bucket inclui a "pasta"
+        caminho_final_blob = f"{PASTA_DESTINO}{file_name}"
         
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Vendas Gold')
+            df.to_excel(writer, index=False, sheet_name='Vendas silver')
         
-        output.seek(0) # Volta para o início do arquivo em memória
+        output.seek(0)
 
-        # 3️⃣ Salvar no Google Drive
-        file_metadata = {
-            'name': file_name,
-            'parents': [FOLDER_DESTINO_ID]
-        }
-        media = MediaIoBaseUpload(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        # 3️⃣ Salvar no Cloud Storage (Bucket)
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(caminho_final_blob)
 
-        logging.info(f"Fazendo upload do arquivo {file_name} para o Drive...")
-        drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        logging.info(f"Fazendo upload para gs://{BUCKET_NAME}/{caminho_final_blob}...")
+        blob.upload_from_file(output, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
         return {
             "status": "success",
-            "message": f"Arquivo {file_name} gerado e salvo no Drive.",
+            "message": f"Arquivo salvo no bucket em: {caminho_final_blob}",
             "rows_exported": len(df)
         }, 200
 
     except Exception as e:
-        logging.error(f"Erro no processo de exportação: {e}")
+        logging.error(f"Erro no processo de exportação para bucket: {e}")
         return {
             "status": "error",
-            "message": "Falha ao exportar dados da GOLD para o Drive.",
+            "message": "Falha ao exportar dados da silver para o Storage.",
             "details": str(e)
         }, 500
 
 # =====================
-# ENDPOINT CLOUD RUN
+# ENDPOINT
 # =====================
 @app.post("/import_file")
 def import_file():
-    resultado, status_code = exportar_gold_para_drive()
+    resultado, status_code = exportar_silver_para_bucket()
     return jsonify(resultado), status_code
 
 if __name__ == "__main__":

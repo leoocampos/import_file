@@ -3,8 +3,6 @@ gunicorn
 pandas
 openpyxl
 google-cloud-bigquery
+google-cloud-storage
 google-cloud-bigquery-storage
-google-api-python-client
-google-auth
 pyarrow
-db-dtypes
