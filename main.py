@@ -77,9 +77,9 @@ def exportar_silver_para_bucket():
             "details": str(e)
         }, 500
 
-# =====================
+# ======================
 # ENDPOINT
-# =====================
+# ======================
 @app.post("/import_file")
 def import_file():
     resultado, status_code = exportar_silver_para_bucket()
